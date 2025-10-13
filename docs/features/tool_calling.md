@@ -372,6 +372,7 @@ vllm serve <apertus-model-name> \
 ```
 
 If you god error when calling apertus the model with unction definition:
+
 ```json
 {
   "type": "function",
@@ -395,6 +396,7 @@ If you god error when calling apertus the model with unction definition:
   }
 }
 ```
+
 The chat template got a bug, use the one in the VLLM project
 
 ```bash
