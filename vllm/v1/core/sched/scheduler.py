@@ -39,7 +39,7 @@ from vllm.v1.core.sched.output import (
 )
 from vllm.v1.core.sched.request_queue import SchedulingPolicy, create_request_queue
 from vllm.v1.core.sched.utils import check_stop, remove_all
-from vllm.v1.engine import EngineCoreEventType, EngineCoreOutput, EngineCoreOutputs
+from vllm.v1.engine import EngineCoreEventType, EngineCoreOutput, EngineCoreOutputs, FinishReason
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.metrics.stats import (
     PrefixCacheStats,
@@ -81,6 +81,7 @@ class Scheduler(SchedulerInterface):
             )
         self.structured_output_manager = structured_output_manager
         self.is_encoder_decoder = vllm_config.model_config.is_encoder_decoder
+        self.pending_error_outputs: dict[int, list[EngineCoreOutput]] = defaultdict(list)
 
         # include_finished_set controls whether a separate set of finished
         # request ids should be included in the EngineCoreOutputs returned
@@ -437,7 +438,48 @@ class Scheduler(SchedulerInterface):
                 # for FSM compilation.
                 if request.status == RequestStatus.WAITING_FOR_FSM:
                     structured_output_req = request.structured_output_request
-                    if structured_output_req and structured_output_req.grammar:
+                    # In Scheduler.schedule() loop
+                    try:
+                        grammar_ready = structured_output_req and structured_output_req.grammar
+                    except Exception as e:
+                        # 1. Capture details needed for the output before the request is destroyed
+                        # by finish_requests()
+                        req_id = request.request_id
+                        client_idx = request.client_index
+                        error_message = f"Structured output grammar compilation failed: {str(e)}"
+
+                        logger.warning(f"{error_message} for request {req_id}. Aborting.")
+
+                        # 2. Create a synthetic EngineCoreOutput containing the error
+                        error_output = EngineCoreOutput(
+                                request_id=req_id,
+                                new_token_ids=[],
+                                finish_reason=FinishReason.STOP,
+                                new_logprobs=None,
+                                new_prompt_logprobs_tensors=None,
+                                pooling_output=None,
+                                stop_reason=error_message,
+                                events=request.take_events(),
+                                kv_transfer_params=None,
+                                trace_headers=request.trace_headers,
+                                num_cached_tokens=request.num_cached_tokens,
+                                num_nans_in_logits=request.num_nans_in_logits,
+                                )
+
+                        # 3. Store in the pending buffer
+                        self.pending_error_outputs[client_idx].append(error_output)
+
+                        # 4. Standard finish procedure
+                        if self.finished_req_ids_dict is None:
+                            self.finished_req_ids_dict = defaultdict(set)
+
+                        self.finish_requests(
+                                request.request_id,
+                                RequestStatus.FINISHED_ABORTED,
+                                )
+                        continue
+
+                    if grammar_ready:
                         request.status = RequestStatus.WAITING
                     else:
                         self.waiting.pop_request()
@@ -1039,6 +1081,10 @@ class Scheduler(SchedulerInterface):
         kv_connector_output = model_runner_output.kv_connector_output
 
         outputs: dict[int, list[EngineCoreOutput]] = defaultdict(list)
+        if self.pending_error_outputs:
+            for client_idx, error_outs in self.pending_error_outputs.items():
+                outputs[client_idx].extend(error_outs)
+            self.pending_error_outputs.clear()
         spec_decoding_stats: SpecDecodingStats | None = None
         kv_connector_stats: KVConnectorStats | None = (
             kv_connector_output.kv_connector_stats if kv_connector_output else None
