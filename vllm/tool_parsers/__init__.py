@@ -138,6 +138,14 @@ _TOOL_PARSERS_TO_REGISTER = {
         "gigachat3_tool_parser",
         "GigaChat3ToolParser",
     ),
+    "apertus": (
+        "apertus_tool_parser",
+        "ApertusToolParser",
+        ),
+    "apriel": (
+        "apriel_tool_parser",
+        "AprielToolParser",
+        ),
 }
 
 
