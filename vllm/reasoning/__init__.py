@@ -84,6 +84,10 @@ _REASONING_PARSERS_TO_REGISTER = {
         "step3_reasoning_parser",
         "Step3ReasoningParser",
     ),
+    "apriel": (
+        "apriel_reasoning_parsers",
+        "AprielReasoningParser",
+    ),
 }
 
 
