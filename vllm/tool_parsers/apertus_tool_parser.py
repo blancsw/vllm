@@ -1,3 +1,4 @@
+from vllm.entrypoints.openai.protocol import ChatCompletionRequest
 from vllm.tokenizers import TokenizerLike
 from vllm.tool_parsers.abstract_json_tool_parser import AbstractJSONToolParser
 
@@ -18,6 +19,14 @@ class ApertusToolParser(AbstractJSONToolParser):
                 tool_calls_prefix="<|tools_prefix|>",
                 tool_calls_suffix="<|tools_suffix|>",
                 )
+
+    def adjust_request(self, request: ChatCompletionRequest) -> ChatCompletionRequest:
+        if request.tools and request.tool_choice != "none":
+            # do not skip special tokens because the tool_call tokens are
+            # marked "special" in some models. Since they are skipped
+            # prior to the call to the tool parser, it breaks tool calling.
+            request.skip_special_tokens = False
+        return request
 
     def _extract_tool_call_data(self, tool_call_obj: dict) -> tuple[str | None, dict | None]:
         """

@@ -81,14 +81,6 @@ class AbstractJSONToolParser(ToolParser):
         """
         raise NotImplementedError("Subclasses must implement _extract_tool_call_data")
 
-    def adjust_request(self, request: ChatCompletionRequest) -> ChatCompletionRequest:
-        if request.tools and request.tool_choice != "none":
-            # do not skip special tokens because the tool_call tokens are
-            # marked "special" in some models. Since they are skipped
-            # prior to the call to the tool parser, it breaks tool calling.
-            request.skip_special_tokens = False
-        return request
-
     def _reset_streaming_state(self):
         """Reset streaming state for a new request."""
         self._initialize_tool_state(-1)
@@ -167,6 +159,7 @@ class AbstractJSONToolParser(ToolParser):
             request: ChatCompletionRequest,
             ) -> DeltaMessage | None:
         """Extract tool calls in streaming mode."""
+
         # Reset state at the start of a new streaming session
         # (detected when previous_text is empty or doesn't contain tool prefix)
         if not previous_text or (
